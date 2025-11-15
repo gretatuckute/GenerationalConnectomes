@@ -121,7 +121,9 @@ def analyze_single_layer(model, layer_idx: int = 1, zero_tol: float = 0.0):
     in_str_mlp = (W_mlp_out.abs() * mask_mlp_out).sum(dim=1)     # [d_model]
     in_strength = in_str_attn + in_str_mlp                       # [d_model]
 
-    total_strength = in_strength + out_strength
+    total_strength = in_strength + out_strength # this is already based on abs values of the weights so this will always be positive
+    # In principle we could also look at inhibitory and excitatory strengths separately
+
 
     # --- Simple summary statistics ---
 
@@ -166,44 +168,48 @@ def analyze_single_layer(model, layer_idx: int = 1, zero_tol: float = 0.0):
     }
 
 
-def hist_plots(stats, bins: int = 50):
+def hist_plots(stats, model_name: str, layer_idx: int, bins: int = 100):
     """
     Tiny helper to visualize the distributions:
 
     - Histogram of total_degree
     - Histogram of log10(total_strength) for nodes with strength > 0
 
-    If matplotlib is not installed, this just prints a message and does nothing.
+    Adds the short model name and layer index to the plot titles.
     """
     if plt is None:
         print("\n[hist_plots] matplotlib not available; skipping plots.")
         return
 
+    # Get short model id
+    model_short = model_name.split("/")[-1]
+
     total_degree = stats["total_degree"].detach().cpu()
     total_strength = stats["total_strength"].detach().cpu()
 
     # 1) Histogram of total_degree
-    plt.figure()
+    plt.figure(figsize=(8,6))
     plt.hist(total_degree.numpy(), bins=bins)
-    plt.title("Total degree per residual node")
+    plt.title(f"{model_short} (layer {layer_idx}): Total degree per residual node")
     plt.xlabel("total_degree")
     plt.ylabel("count")
     plt.tight_layout()
     plt.show()
 
     # 2) Histogram of log10(total_strength) (only for positive strengths)
-    mask_pos = total_strength > 0
+    mask_pos = total_strength > 0 # because nodes with total_strength = 0 are "disconnected", so here we avoid log(0)
     if mask_pos.any():
         log_strength = torch.log10(total_strength[mask_pos])
-        plt.figure()
+        plt.figure(figsize=(8,6))
         plt.hist(log_strength.numpy(), bins=bins)
-        plt.title("log10(total strength) per residual node")
+        plt.title(f"{model_short} (layer {layer_idx}): log10(total strength) per residual node")
         plt.xlabel("log10(total_strength)")
         plt.ylabel("count")
         plt.tight_layout()
         plt.show()
     else:
         print("[hist_plots] No positive strengths found; skipping log-strength plot.")
+
 
 
 if __name__ == "__main__":
@@ -244,4 +250,5 @@ if __name__ == "__main__":
     stats = analyze_single_layer(model, layer_idx=args.layer_idx, zero_tol=args.zero_tol)
 
     if not args.no_plots:
-        hist_plots(stats)
+        hist_plots(stats, args.model_name, args.layer_idx)
+
